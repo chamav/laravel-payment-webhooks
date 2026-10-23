@@ -100,6 +100,7 @@ sample data; each new run creates its own orders. See the guide to reproduce it.
 | [Synchronous flow](docs/decisions/002-sync-flow.md) | Failure recovery, retries and limits |
 | [OpenAPI](docs/openapi.yaml) | Headers, schemas, responses and error codes |
 | [Verification](docs/verification.md) | Runtime results and acceptance coverage |
+| [AI workflow](docs/ai-workflow.md) | How I used AI agents and checked their work |
 
 `make verify` runs Composer validation, Pint, PHPStan level 8 and PHPUnit on real
 PostgreSQL. Concurrency tests use independent OS processes and prove lock overlap.
