@@ -32,7 +32,7 @@ _ide_helper.php
 .DS_Store
 Thumbs.db
 
-# Local AI tooling (not part of the project)
+# Local tool configuration
 /.ai-factory/
 /.ai-factory.json
 /.claude/
