@@ -2,55 +2,30 @@
 
 # Verification record
 
-This is a local source snapshot check. It is not a verified release commit.
-The remaining release checks are listed below.
+This record verifies a committed checkout. GitHub CI and the owner's spoken
+demonstration remain pending.
 
 ## Source provenance
 
-Checked on 2026-10-23, from 14:13:33 to 14:15:22 UTC.
+Checked on 2026-10-23, from 14:53:04 to 14:54:45 UTC, including cleanup.
 
-Base commit: `bd8244aacfe60825cddd71bbb66ac9a8113dc193`.
-A fresh local clone received the public files below as an explicit source overlay.
-The clone had no copied `.env`, dependencies, caches or runtime data. Setup created
-its secrets and installed dependencies from `composer.lock`. Docker build layers
-were cached. Host PHP and Composer were not used.
+Verified commit: `4934ea26df4d429cc2a046fb47c62e883d1c4fe5`.
+A fresh `git clone --no-hardlinks` checked out this exact commit at detached HEAD,
+without any source overlay. The tracked checkout was clean before setup and after
+the mutation was restored. No `.env`, dependencies, caches or runtime data were
+copied. Setup created its secrets and installed dependencies from `composer.lock`.
+Docker build layers were cached. Host PHP and Composer were not used.
 
-The overlay was checked byte for byte before execution and after restoring the
-mutation. Its manifest SHA-256 is
-`12eeb08a45bac0559e8f84a747a846e131778937018b5ea57d7eed43c4444f5e`.
-The manifest contains sorted `SHA256  path` lines with a final newline for:
-
-```text
-.gitignore
-Dockerfile
-LICENSE
-Makefile
-README.md
-app/Console/Commands/RunDemoCommand.php
-app/Data/WebhookDeliveryResult.php
-app/Services/SendDemoWebhook.php
-compose.yaml
-docs/architecture.md
-docs/decisions/001-idempotency.md
-docs/decisions/002-sync-flow.md
-docs/demo.md
-docs/openapi.yaml
-tests/Feature/Console/RunDemoCommandTest.php
-tests/Feature/Console/SendDemoWebhookCommandTest.php
-```
-
-This record was written after execution and is outside that manifest. The base
-commit does not contain the overlay. A clean clone of a committed version with
-these changes is still required for final P01 evidence. That later check must
-name the code commit it ran, rather than a later commit containing this record.
+This updated record is to be committed after the verified commit. The results
+below cover only the SHA above, not the later commit containing this update.
 
 ## Runtime
 
 | Command in the container | Actual output |
 | --- | --- |
-| `php -v` | PHP 8.5.12 (cli), built Oct 21 2026 15:53:40, NTS; Zend Engine 4.5.12 and OPcache 8.5.12 |
+| `php -v` | PHP 8.5.12 (cli), NTS; Zend Engine 4.5.12 and OPcache 8.5.12 |
 | `php artisan --version` | Laravel Framework 13.38.0 |
-| `composer --version` | Composer version 2.10.3 2026-08-27 13:34:23 |
+| `composer --version` | Composer version 2.10.3 |
 | `vendor/bin/phpunit --version` | PHPUnit 12.5.40 |
 | `SHOW server_version` | 18.6 (Debian 18.6-1.pgdg13+2) |
 | `uname -m` | aarch64 |
@@ -71,21 +46,18 @@ are not pinned by the image digest.
 
 ## Commands and results
 
-The snapshot results below predate the bounded sender response-read fix and its
-new regression tests. They do not describe the current working tree. A clean
-committed-checkout run is still required after the code commit.
-
 `CHECKOUT` below names the temporary clone directory inside the source repository.
 Its local path is omitted. The same three overrides applied to every Make and
-Compose command, including cleanup:
+Compose command, including cleanup. Port 18090 was free before setup:
 
 ```sh
 git clone --no-hardlinks . "$CHECKOUT"
-# Copy only the public overlay listed above into the clone.
+git -C "$CHECKOUT" checkout --detach 4934ea26df4d429cc2a046fb47c62e883d1c4fe5
 cd "$CHECKOUT"
-export COMPOSE_PROJECT_NAME=lpw-s5-clean-20261023
-export APP_PORT=18088
-export APP_IMAGE=lpw-s5-clean-20261023:app
+export COMPOSE_PROJECT_NAME=lpw-s5-committed-20261023-1451
+export APP_PORT=18090
+export APP_IMAGE=lpw-s5-committed-20261023-1451:app
+export HOST_UID="$(id -u)" HOST_GID="$(id -g)"
 make setup
 make demo
 make demo
@@ -93,7 +65,7 @@ make setup
 make verify ARGS="--log-junit storage/framework/testing/junit.xml"
 docker compose run --rm --no-deps -T app composer audit --locked --no-interaction
 docker compose run --rm --no-deps -T app sh -c 'php -v && php artisan --version && composer --version && vendor/bin/phpunit --version && uname -m'
-docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -c "SHOW server_version"'
+docker compose exec -T db sh -c 'psql -X -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -c "SHOW server_version"'
 ```
 
 Each command above returned exit 0. The free port, project labels, app image tag,
@@ -106,48 +78,28 @@ Setup and demo started only `app` and `db`. Verification started the separate
 | Composer validation | Passed with `--strict` |
 | Pint | Passed, 84 files |
 | PHPStan | Passed, level 8, no baseline; explicit 512 MB analysis limit |
-| PHPUnit | 530 tests, 6304 assertions, 0 errors, 0 failures, **0 skipped** |
-| Test duration | 17.37 s in the CLI output; 16.887790 s in JUnit |
+| PHPUnit | 542 tests, 6586 assertions, 0 errors, 0 failures, **0 skipped** |
+| Test duration | 14.05 s in the CLI output; 13.632210 s in JUnit |
 | Composer audit | Exit 0: no security vulnerability advisories found |
 | Repeated demo | Exit 0 twice; four orders, two payments, two receipts; fresh IDs and unchanged first-run rows |
 | Repeated setup | Exit 0; complete `.env` bytes and all demo rows unchanged |
-| Test isolation | All demo rows unchanged after verification |
-
-An earlier fresh analysis hit PHP's default 128 MB memory limit. The Make command
-now gives PHPStan 512 MB. This changes the analyzer process only. The full final
-verification above passed with that command.
+| Test isolation | All demo rows and complete `.env` bytes unchanged after verification |
 
 C01-C05 all passed on PostgreSQL, with no skips or timeouts. Their JUnit group
-contains 5 tests, 1362 assertions and 0 errors/failures/skips. The tests prove
+contains 5 tests, 1318 assertions and 0 errors/failures/skips. The tests prove
 process and session overlap before checking the results. See the
 [concurrency helper](../tests/Support/ConcurrentWebhookRunner.php).
 
-### Bounded response-read check
-
-On 2026-10-23, after limiting sender summary reads to 4097 bytes, verification ran
-in the current working tree with the existing app image and a separate Compose
-project and test database:
-
-```sh
-COMPOSE_PROJECT_NAME=lpw-s5-rework-a-20261023 APP_PORT=18089 make verify ARGS="--log-junit storage/framework/testing/rework-a-junit.xml"
-```
-
-Exit 0: Composer validation, Pint and PHPStan passed; PHPUnit reported 542 tests,
-6608 assertions, 0 errors, 0 failures and **0 skipped**. The new tests cover
+The full suite includes the bounded sender response-read regression tests:
 1 MiB and 32 MiB responses in normal and response-exception paths, short stream
 reads, the 4096-byte boundary, unchanged retries, logs and command exit codes.
-The earlier snapshot's manifest and results above remain historical evidence.
-This check did not rerun setup, the HTTP demo or P01; the committed-checkout check
-is still required.
-The isolated test resources were removed. Existing container IDs, health, demo
-rows, app image, demo-volume metadata and `.env` bytes matched before and after.
 
 ## Manual checks
 
 ### P01_clean_checkout_setup_demo_verify
 
-Passed for the source snapshot described above. The strict committed-checkout
-check remains pending. No existing `.env` or `vendor` directory was reused.
+Passed on `4934ea26df4d429cc2a046fb47c62e883d1c4fe5`, using the clean detached
+checkout and commands above. No existing `.env` or `vendor` directory was reused.
 
 ### P04_demo_repeat_and_failed_expectation
 
@@ -159,7 +111,15 @@ In the temporary clone only, the first success expectation was changed from
 `httpStatus === 200` to `httpStatus === 201`. Running `make demo` returned exit 2
 (the command returned 1), with `Demo failed: success_response.`. The original file
 was restored byte for byte. The next `make demo` returned exit 0.
-The failed run's rows were local to the temporary demo database.
+The failed run's rows were local to the temporary demo database. The tracked
+checkout was clean again after restoration. Both runs used the same overrides:
+
+```sh
+# Only the first success status expectation is temporarily changed to 201.
+make demo
+# Restore app/Console/Commands/RunDemoCommand.php byte for byte.
+make demo
+```
 
 ### P06_openapi_http_contract_review
 
@@ -180,18 +140,21 @@ All associated HTTP tests passed in the full run.
 
 ### P08_source_archive_hygiene
 
-The tracked source list and the new public files were checked together, without
-staging. No real local secrets, Cyrillic text, private working paths, local context
-references, unfinished markers or runtime files were found in public content.
-Local-tool ignore rules remain intact. Standard dependency metadata and crawler
-directives retain their names; they are not local context records.
+Passed on `4934ea26df4d429cc2a046fb47c62e883d1c4fe5`. From the source repository,
+with the temporary archive path omitted:
 
-A temporary source snapshot archive was built from that public list using the
-current export-ignore rules. It contains source, tests, documentation, LICENSE,
-Make/Docker files and `composer.lock`. It has no `.env`, `vendor`, database data,
-logs or local configuration data. `.env.example` contains empty secret values.
-No export-ignore change was needed. This is a snapshot archive, not a GitHub
-release ZIP. A committed source archive still needs the final code commit.
+```sh
+git archive --format=tar --output="$ARCHIVE" 4934ea26df4d429cc2a046fb47c62e883d1c4fe5
+```
+
+The command returned exit 0. The archive listing has 169 entries, including
+120 regular files. It contains source, tests, documentation, LICENSE, Make/Docker
+files and `composer.lock`. It has no `.env`, `vendor`, database data, runtime logs
+or private tool files. Runtime directories contain only their `.gitignore` files.
+`.env.example` has empty `APP_KEY`, `DB_PASSWORD` and `WEBHOOK_SECRET` values.
+The committed export-ignore rules were applied: `.github`, `CHANGELOG.md` and
+`.styleci.yml` are absent. No rule change was needed. The archive was removed.
+This checks the committed source archive; no GitHub release ZIP was published.
 
 ### P09_readme_links_and_code_review
 
@@ -210,13 +173,14 @@ Cleanup used the same overrides and the exact temporary project name:
 
 ```sh
 make down
-docker compose -p lpw-s5-clean-20261023 down -v --remove-orphans
-docker image rm lpw-s5-clean-20261023:app
+docker compose -p lpw-s5-committed-20261023-1451 down -v --remove-orphans
+docker image rm lpw-s5-committed-20261023-1451:app
 ```
 
-Both shutdown commands returned exit 0. The temporary clone was removed after the
-safe results and JUnit report were retained. No temporary project containers,
-volumes or app image tag remain. The earlier iteration stack was also removed.
+All three cleanup commands returned exit 0. The temporary clone and archive were
+removed. No isolated containers, volumes, networks or app image tag remain.
+The owner's three containers kept their IDs, start times, health and mounts;
+the app image ID, demo-volume metadata, `.env` bytes and demo rows also matched.
 The existing owner stack remains healthy with its original data.
 
 ## Acceptance coverage
@@ -263,14 +227,14 @@ the exact check; parameterized methods include all their data-provider cases.
 | C03 | [Concurrency](../tests/Feature/Webhooks/DemoPayConcurrencyTest.php): `test_c03_rejects_second_payment_for_same_order_in_overlapping_processes` | Passed |
 | C04 | [Concurrency](../tests/Feature/Webhooks/DemoPayConcurrencyTest.php): `test_c04_rejects_shared_payment_for_different_orders_in_overlapping_processes` | Passed |
 | C05 | [Concurrency](../tests/Feature/Webhooks/DemoPayConcurrencyTest.php): `test_c05_rejects_changed_body_for_same_event_in_overlapping_processes` | Passed |
-| P01 | `P01_clean_checkout_setup_demo_verify` | Snapshot passed; committed checkout pending |
+| P01 | `P01_clean_checkout_setup_demo_verify` | Passed on `4934ea26df4d429cc2a046fb47c62e883d1c4fe5` |
 | P02 | Repeated setup, `.env` and demo-row comparison above | Passed |
 | P03 | [Database guard](../tests/Feature/Support/TestDatabaseConnectionTest.php): `test_p03_uses_real_webhooks_test_database`; [reset guard](../tests/Feature/Console/ResetDemoCommandTest.php): both `test_p03_*` methods; manual demo-row comparison | Passed |
 | P04 | [Demo runner](../tests/Feature/Console/RunDemoCommandTest.php): all `test_p04_*` methods; `P04_demo_repeat_and_failed_expectation` | Passed |
 | P05 | GitHub CI on the final published code commit | Pending; no remote run claimed |
 | P06 | `P06_openapi_http_contract_review` and H/D/R HTTP tests | Passed |
 | P07 | [Logging](../tests/Feature/Webhooks/DemoPayLoggingTest.php): all methods; [sender summary](../tests/Feature/Console/SendDemoWebhookCommandTest.php): all `test_p07_*` methods | Passed |
-| P08 | `P08_source_archive_hygiene` | Public snapshot passed; committed archive pending |
+| P08 | `P08_source_archive_hygiene` | Passed on `4934ea26df4d429cc2a046fb47c62e883d1c4fe5` |
 | P09 | `P09_readme_links_and_code_review` | Passed |
 | P10 | Owner's spoken demonstration and explanation | Pending |
 
