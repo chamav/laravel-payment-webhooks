@@ -36,7 +36,12 @@ class LogWebhookAttempt
             $context['error_code'] = $request->attributes->get('webhook_error_code', 'internal_error');
         }
 
-        if ($response->getStatusCode() === 500) {
+        if ($request->attributes->has('webhook_database_error_type')) {
+            $context['database_error_type'] = $request->attributes->get('webhook_database_error_type');
+            $context['sqlstate'] = $request->attributes->get('webhook_sqlstate');
+        }
+
+        if ($request->attributes->has('webhook_exception_class')) {
             $context['exception_class'] = $request->attributes->get('webhook_exception_class');
         }
 

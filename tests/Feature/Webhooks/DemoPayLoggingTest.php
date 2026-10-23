@@ -6,6 +6,7 @@ namespace Tests\Feature\Webhooks;
 
 use App\Actions\ProcessWebhook;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\QueryException;
 use Illuminate\Log\Logger;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -14,6 +15,7 @@ use Illuminate\Testing\TestResponse;
 use Monolog\Handler\TestHandler;
 use Monolog\Logger as Monolog;
 use Monolog\LogRecord;
+use PDOException;
 use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
 use Symfony\Component\HttpKernel\Exception\ServiceUnavailableHttpException;
@@ -106,6 +108,46 @@ class DemoPayLoggingTest extends TestCase
             'H12 method' => ['method', 405, 'method_not_allowed', 'WARNING'],
             'unavailable action' => ['unavailable', 503, 'temporarily_unavailable', 'ERROR'],
             'unexpected exception' => ['exception', 500, 'internal_error', 'ERROR'],
+        ];
+    }
+
+    #[DataProvider('databaseStates')]
+    public function test_database_failures_use_one_safe_completion_record(string $state, int $status, string $type): void
+    {
+        config(['app.debug' => true]);
+        $pdo = new PDOException('LEAK_MARKER pgsql:host=private-db server has gone away', 7);
+        $pdo->errorInfo = [$state, 7, 'LEAK_MARKER'];
+        $exception = new QueryException('pgsql', 'SELECT ?', [self::SECRET.self::BODY], $pdo);
+        $this->mock(ProcessWebhook::class)->shouldReceive('handle')->once()->andThrow($exception);
+        $handler = new TestHandler;
+        Log::swap(new Logger(new Monolog('webhook-test', [$handler])));
+
+        $response = $this->sendRaw();
+        $this->assertRejected($response, $status, $status === 503 ? 'temporarily_unavailable' : 'internal_error');
+        $this->assertCount(1, $handler->getRecords());
+        $record = $handler->getRecords()[0];
+        $this->assertSame('ERROR', $record['level_name']);
+        $this->assertSame($state, $record->context['sqlstate']);
+        $this->assertSame($type, $record->context['database_error_type']);
+        $this->assertSame(QueryException::class, $record->context['exception_class']);
+        $this->assertEqualsCanonicalizing([
+            'request_id', 'event_id', 'duplicate', 'duration_ms', 'error_code',
+            'sqlstate', 'database_error_type', 'exception_class',
+        ], array_keys($record->context));
+        $visible = $response->getContent().json_encode($record->toArray(), JSON_THROW_ON_ERROR);
+        foreach (['LEAK_MARKER', 'pgsql:', 'SELECT', self::SECRET, self::BODY,
+            $this->signedHeaders(self::BODY)['HTTP_X_WEBHOOK_SIGNATURE']] as $sensitive) {
+            $this->assertStringNotContainsString($sensitive, $visible);
+        }
+    }
+
+    public static function databaseStates(): array
+    {
+        return [
+            ['55P03', 503, 'lock_timeout'], ['57014', 503, 'statement_timeout'],
+            ['08006', 503, 'connection_failure'], ['40001', 503, 'concurrency_failure'],
+            ['40P01', 503, 'concurrency_failure'], ['23505', 500, 'database_error'],
+            ['23514', 500, 'database_error'], ['42601', 500, 'database_error'],
         ];
     }
 

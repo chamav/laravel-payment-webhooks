@@ -22,6 +22,7 @@ class ProcessWebhook
 
     public function handle(WebhookEvent $event): WebhookResult
     {
+        $attempts = $this->transactionAttempts();
         $lockTimeout = $this->timeout('lock_timeout_ms');
         $statementTimeout = $this->timeout('statement_timeout_ms');
         if ($statementTimeout <= $lockTimeout) {
@@ -64,7 +65,23 @@ class ProcessWebhook
                 : new WebhookResult($event->eventId, WebhookOutcome::Ignored, false);
 
             return $this->finalize($receiptId, $event, $result);
-        }, 1);
+        }, $attempts);
+    }
+
+    /** @return int<1, 5> */
+    private function transactionAttempts(): int
+    {
+        $value = config('webhooks.transaction_attempts');
+        if ((! is_int($value) && ! is_string($value)) || preg_match('/^[0-9]$/D', (string) $value) !== 1) {
+            throw new LogicException('Webhook transaction attempts must be an integer between 1 and 5.');
+        }
+
+        $attempts = (int) $value;
+        if ($attempts < 1 || $attempts > 5) {
+            throw new LogicException('Webhook transaction attempts must be between 1 and 5.');
+        }
+
+        return $attempts;
     }
 
     private function timeout(string $key): int

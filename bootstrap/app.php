@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Http\Middleware\LogWebhookAttempt;
+use App\Support\WebhookDatabaseFailure;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -40,7 +41,9 @@ return Application::configure(basePath: dirname(__DIR__))
                 return null;
             }
 
+            $databaseFailure = WebhookDatabaseFailure::from($exception);
             $status = match (true) {
+                $databaseFailure?->temporary === true => 503,
                 $exception instanceof ValidationException => 422,
                 $exception instanceof HttpExceptionInterface => $exception->getStatusCode(),
                 default => 500,
@@ -57,7 +60,11 @@ return Application::configure(basePath: dirname(__DIR__))
                 default => 'internal_error',
             };
             $request->attributes->set('webhook_error_code', $code);
-            if ($status === 500) {
+            if ($databaseFailure !== null) {
+                $request->attributes->set('webhook_database_error_type', $databaseFailure->type);
+                $request->attributes->set('webhook_sqlstate', $databaseFailure->sqlstate);
+            }
+            if ($status === 500 || $databaseFailure !== null) {
                 $request->attributes->set('webhook_exception_class', get_class($exception));
             }
             $headers = $exception instanceof HttpExceptionInterface ? $exception->getHeaders() : [];
