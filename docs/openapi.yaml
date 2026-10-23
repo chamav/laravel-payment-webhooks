@@ -358,7 +358,7 @@ components:
                     const: validation_failed
           example: {error: validation_failed}
     InternalError:
-      description: An unexpected error occurred. No exception details are returned.
+      description: An unexpected error occurred. The transaction is rolled back. No exception details are returned.
       content:
         application/json:
           schema:
@@ -369,7 +369,12 @@ components:
                     const: internal_error
           example: {error: internal_error}
     TemporarilyUnavailable:
-      description: The service is temporarily unavailable, including when the webhook secret is empty.
+      description: |
+        The webhook secret is empty, the database is unavailable, a lock or statement
+        timeout was reached, or bounded serialization/deadlock retries were exhausted.
+        No successful decision is committed for a failed transaction. Retry the same
+        raw body with a current timestamp and a new signature. No database details
+        are returned.
       content:
         application/json:
           schema:
