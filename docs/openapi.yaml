@@ -1,8 +1,8 @@
 openapi: 3.1.1
 info:
   title: Payment webhook API
-  version: 0.2.0
-  description: Request checks and error responses for signed demo-pay webhooks.
+  version: 0.3.0
+  description: Signed demo-pay payment processing and immutable event receipts.
 paths:
   /api/webhooks/demo-pay:
     post:
@@ -27,6 +27,25 @@ paths:
         headers and signature, JSON syntax, then event schema. Failed request
         checks do not write orders, payments or webhook receipts. Errors are JSON
         even without an Accept header. Validation details are not returned.
+
+        After request checks, event identity is (demo-pay, event id). Identical
+        raw body bytes replay the saved HTTP status, outcome and reason with
+        duplicate=true, even if the order has changed. The delivery timestamp is
+        outside event identity; retries sign the same bytes with a fresh timestamp.
+        Changed bytes under an existing id return event_conflict, including changes
+        to whitespace or JSON key order that preserve the parsed data.
+
+        For a new payment.succeeded event, check the order's existence, amount,
+        currency, payment identity, then order status. Return the first rejection
+        in this order. A payment id already bound to another order yields
+        payment_conflict after the amount/currency checks. The same payment id,
+        order, amount and currency yield duplicate_payment without changing paid_at.
+        A fresh event has duplicate=false, including duplicate_payment decisions.
+
+        Successful processing commits the payment, paid order and final receipt
+        together. A business rejection saves only its receipt. Other event types
+        require only the envelope and object data; they save an ignored receipt
+        and do not modify orders or payments, including payment.refunded.
       security:
         - WebhookTimestamp: []
           WebhookSignature: []
@@ -55,10 +74,52 @@ paths:
                   type: payment.refunded
                   data: {}
       responses:
+        '200':
+          description: A new successful or ignored decision, or its saved replay.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessfulReceipt'
+              examples:
+                processed:
+                  value: {event_id: evt_demo_001, outcome: processed, duplicate: false}
+                processedReplay:
+                  value: {event_id: evt_demo_001, outcome: processed, duplicate: true}
+                duplicatePayment:
+                  value: {event_id: evt_demo_002, outcome: duplicate_payment, duplicate: false}
+                duplicatePaymentReplay:
+                  value: {event_id: evt_demo_002, outcome: duplicate_payment, duplicate: true}
+                ignored:
+                  value: {event_id: evt_demo_003, outcome: ignored, duplicate: false}
+                ignoredReplay:
+                  value: {event_id: evt_demo_003, outcome: ignored, duplicate: true}
         '400':
           $ref: '#/components/responses/InvalidJson'
         '401':
           $ref: '#/components/responses/InvalidSignature'
+        '409':
+          description: A saved business rejection (including replay), or changed bytes under an existing event id.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/RejectedReceipt'
+                  - $ref: '#/components/schemas/EventConflict'
+              examples:
+                orderNotFound:
+                  value: {event_id: evt_missing, outcome: rejected, reason: order_not_found, duplicate: false}
+                amountMismatch:
+                  value: {event_id: evt_amount, outcome: rejected, reason: amount_mismatch, duplicate: false}
+                currencyMismatch:
+                  value: {event_id: evt_currency, outcome: rejected, reason: currency_mismatch, duplicate: false}
+                paymentConflict:
+                  value: {event_id: evt_payment_conflict, outcome: rejected, reason: payment_conflict, duplicate: false}
+                orderAlreadyPaid:
+                  value: {event_id: evt_paid, outcome: rejected, reason: order_already_paid, duplicate: false}
+                rejectedReplay:
+                  value: {event_id: evt_missing, outcome: rejected, reason: order_not_found, duplicate: true}
+                eventConflict:
+                  value: {error: event_conflict}
         '413':
           $ref: '#/components/responses/PayloadTooLarge'
         '415':
@@ -179,6 +240,43 @@ components:
         currency:
           type: string
           enum: [EUR, USD]
+    SuccessfulReceipt:
+      type: object
+      required: [event_id, outcome, duplicate]
+      additionalProperties: false
+      properties:
+        event_id:
+          $ref: '#/components/schemas/ProviderId'
+        outcome:
+          type: string
+          enum: [processed, duplicate_payment, ignored]
+        duplicate:
+          type: boolean
+          description: True only when replaying an existing event receipt.
+    RejectedReceipt:
+      type: object
+      required: [event_id, outcome, reason, duplicate]
+      additionalProperties: false
+      properties:
+        event_id:
+          $ref: '#/components/schemas/ProviderId'
+        outcome:
+          type: string
+          const: rejected
+        reason:
+          type: string
+          enum: [order_not_found, amount_mismatch, currency_mismatch, payment_conflict, order_already_paid]
+        duplicate:
+          type: boolean
+          description: Replays retain the original HTTP 409 and reason.
+    EventConflict:
+      type: object
+      required: [error]
+      additionalProperties: false
+      properties:
+        error:
+          type: string
+          const: event_conflict
     Error:
       type: object
       required: [error]
