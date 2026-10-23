@@ -1,9 +1,9 @@
 {
     "$schema": "https://getcomposer.org/schema.json",
-    "name": "laravel/laravel",
+    "name": "chamav/laravel-payment-webhooks",
     "type": "project",
-    "description": "The skeleton application for the Laravel framework.",
-    "keywords": ["laravel", "framework"],
+    "description": "Signed payment webhooks in Laravel, with PostgreSQL transactions and concurrency tests.",
+    "keywords": ["laravel", "postgresql", "webhooks", "payments", "idempotency"],
     "license": "MIT",
     "require": {
         "php": "^8.3",
