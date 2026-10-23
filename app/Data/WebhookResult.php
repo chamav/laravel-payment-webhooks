@@ -12,5 +12,7 @@ final readonly class WebhookResult
         public string $eventId,
         public WebhookOutcome $outcome,
         public bool $duplicate,
+        public int $httpStatus = 200,
+        public ?string $reason = null,
     ) {}
 }

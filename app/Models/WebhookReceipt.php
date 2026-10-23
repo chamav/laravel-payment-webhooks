@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 
+/** @property WebhookOutcome $outcome */
 #[Fillable(['id', 'provider', 'event_id', 'event_type', 'body_sha256', 'outcome', 'reason_code', 'http_status', 'completed_at', 'order_id'])]
 class WebhookReceipt extends Model
 {

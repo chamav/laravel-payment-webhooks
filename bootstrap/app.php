@@ -49,6 +49,7 @@ return Application::configure(basePath: dirname(__DIR__))
                 400 => 'invalid_json',
                 401 => 'invalid_signature',
                 405 => 'method_not_allowed',
+                409 => 'event_conflict',
                 413 => 'payload_too_large',
                 415 => 'unsupported_media_type',
                 422 => 'validation_failed',

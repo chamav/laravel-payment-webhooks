@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/** @property Currency $currency */
 #[Fillable(['id', 'order_id', 'provider', 'provider_payment_id', 'amount_minor', 'currency'])]
 class Payment extends Model
 {

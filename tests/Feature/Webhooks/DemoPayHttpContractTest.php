@@ -6,6 +6,7 @@ namespace Tests\Feature\Webhooks;
 
 use App\Actions\ProcessWebhook;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
 use Tests\Support\SignedWebhookRequests;
@@ -156,14 +157,23 @@ class DemoPayHttpContractTest extends TestCase
         return ['debug disabled' => [false], 'debug enabled' => [true]];
     }
 
-    public function test_default_action_returns_temporary_unavailability_without_database_queries(): void
+    public function test_d08_default_action_records_missing_order_rejection(): void
     {
-        DB::enableQueryLog();
-        DB::flushQueryLog();
-        $response = $this->sendRaw();
-        $queries = DB::getQueryLog();
-        DB::disableQueryLog();
-        $this->assertSame([], $queries);
-        $this->assertRejected($response, 503, 'temporarily_unavailable');
+        $this->sendRaw()->assertStatus(409)->assertExactJson([
+            'event_id' => 'evt_demo_001', 'outcome' => 'rejected',
+            'reason' => 'order_not_found', 'duplicate' => false,
+        ]);
+        $this->assertDatabaseCount('orders', 0);
+        $this->assertDatabaseCount('payments', 0);
+        $this->assertDatabaseCount('webhook_receipts', 1);
+        $receipt = (array) DB::table('webhook_receipts')->sole();
+        $this->assertTrue(Str::isUuid($receipt['id']));
+        $this->assertSame([
+            'id' => $receipt['id'], 'provider' => 'demo-pay', 'event_id' => 'evt_demo_001',
+            'event_type' => 'payment.succeeded', 'body_sha256' => hash('sha256', self::BODY),
+            'outcome' => 'rejected', 'reason_code' => 'order_not_found', 'http_status' => 409,
+            'completed_at' => '2026-10-23 12:00:00.123456+00',
+            'order_id' => '0199a600-0000-7000-8000-000000000001',
+        ], $receipt);
     }
 }

@@ -96,6 +96,7 @@ return [
             'prefix' => '',
             'prefix_indexes' => true,
             'search_path' => 'public',
+            'isolation_level' => 'read committed',
             'sslmode' => env('DB_SSLMODE', 'prefer'),
         ],
 

@@ -12,6 +12,10 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
+/**
+ * @property Currency $currency
+ * @property OrderStatus $status
+ */
 #[Fillable(['id', 'amount_minor', 'currency', 'status', 'paid_at'])]
 class Order extends Model
 {
