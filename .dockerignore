@@ -1,0 +1,3 @@
+# The image copies no files from the build context: Compose bind-mounts the source.
+# Send nothing to the Docker daemon, including .env, vendor and storage.
+*
