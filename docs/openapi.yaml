@@ -1,0 +1,283 @@
+openapi: 3.1.1
+info:
+  title: Payment webhook API
+  version: 0.2.0
+  description: Request checks and error responses for signed demo-pay webhooks.
+paths:
+  /api/webhooks/demo-pay:
+    post:
+      operationId: receiveDemoPayWebhook
+      summary: Receive a signed payment event
+      description: |
+        Send application/json. Media type matching is case insensitive; parameters
+        such as charset=utf-8 are allowed. The body limit is 65,536 bytes, inclusive.
+        Additional JSON fields are allowed and remain part of the signed bytes.
+
+        Both security headers are required. Calculate HMAC-SHA256 over the exact
+        timestamp header, a dot, and the raw body bytes. Use WEBHOOK_SECRET as a
+        literal string key, without hex decoding. Send v1= followed by the 64
+        lowercase hex digits of the digest. Do not serialize the body again.
+
+        The timestamp is Unix seconds: a canonical nonnegative decimal integer
+        with no leading zeros, except 0 itself, and at most 12 digits. It must be
+        within 300 seconds of the server clock in either direction, inclusive.
+        Multiple timestamp or signature values are not accepted.
+
+        Checks run in this order: body size, media type, secret configuration,
+        headers and signature, JSON syntax, then event schema. Failed request
+        checks do not write orders, payments or webhook receipts. Errors are JSON
+        even without an Accept header. Validation details are not returned.
+      security:
+        - WebhookTimestamp: []
+          WebhookSignature: []
+      parameters:
+        - $ref: '#/components/parameters/Timestamp'
+        - $ref: '#/components/parameters/Signature'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookEvent'
+            examples:
+              payment:
+                value:
+                  id: evt_demo_001
+                  type: payment.succeeded
+                  data:
+                    payment_id: pay_demo_001
+                    order_id: 0199a600-0000-7000-8000-000000000001
+                    amount_minor: 12990
+                    currency: EUR
+              otherEvent:
+                value:
+                  id: evt_demo_002
+                  type: payment.refunded
+                  data: {}
+      responses:
+        '400':
+          $ref: '#/components/responses/InvalidJson'
+        '401':
+          $ref: '#/components/responses/InvalidSignature'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/TemporarilyUnavailable'
+    get:
+      operationId: rejectDemoPayGet
+      summary: Reject an unsupported method
+      description: Returns JSON without an Accept header or security headers.
+      security: []
+      responses:
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+    put:
+      operationId: rejectDemoPayPut
+      summary: Reject an unsupported method
+      description: Returns JSON without an Accept header or security headers.
+      security: []
+      responses:
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+components:
+  securitySchemes:
+    WebhookTimestamp:
+      type: apiKey
+      in: header
+      name: X-Webhook-Timestamp
+      description: Unix seconds within the inclusive 300-second window.
+    WebhookSignature:
+      type: apiKey
+      in: header
+      name: X-Webhook-Signature
+      description: v1= followed by the lowercase hex HMAC-SHA256 digest.
+  parameters:
+    Timestamp:
+      in: header
+      name: X-Webhook-Timestamp
+      required: true
+      schema:
+        type: string
+        pattern: '^(?:0|[1-9][0-9]{0,11})(?![\s\S])'
+      description: Canonical Unix seconds, with no spaces or leading zeros.
+    Signature:
+      in: header
+      name: X-Webhook-Signature
+      required: true
+      schema:
+        type: string
+        pattern: '^v1=[0-9a-f]{64}(?![\s\S])'
+      description: One signature over timestamp, a dot, and the exact body bytes.
+  schemas:
+    ProviderId:
+      type: string
+      minLength: 1
+      maxLength: 100
+      pattern: '^[A-Za-z0-9_-]{1,100}(?![\s\S])'
+    Envelope:
+      type: object
+      required: [id, type, data]
+      additionalProperties: true
+      properties:
+        id:
+          $ref: '#/components/schemas/ProviderId'
+        type:
+          type: string
+          minLength: 1
+          maxLength: 100
+          pattern: '^[A-Za-z0-9._-]{1,100}(?![\s\S])'
+        data:
+          type: object
+          additionalProperties: true
+    WebhookEvent:
+      oneOf:
+        - $ref: '#/components/schemas/PaymentSucceededEvent'
+        - $ref: '#/components/schemas/OtherEvent'
+    PaymentSucceededEvent:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            type:
+              const: payment.succeeded
+            data:
+              $ref: '#/components/schemas/SucceededPayment'
+    OtherEvent:
+      description: Other event types require only the envelope and an object data field.
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            type:
+              not:
+                const: payment.succeeded
+    SucceededPayment:
+      type: object
+      required: [payment_id, order_id, amount_minor, currency]
+      additionalProperties: true
+      properties:
+        payment_id:
+          $ref: '#/components/schemas/ProviderId'
+        order_id:
+          type: string
+          format: uuid
+          pattern: '^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}(?![\s\S])'
+        amount_minor:
+          type: integer
+          minimum: 1
+          maximum: 1000000000
+          description: |
+            Use an integer JSON token in minor units. Strings, booleans, decimal
+            tokens such as 12990.0, and exponent tokens such as 1e3 are rejected.
+            JSON Schema integer alone cannot express this token restriction.
+        currency:
+          type: string
+          enum: [EUR, USD]
+    Error:
+      type: object
+      required: [error]
+      additionalProperties: false
+      properties:
+        error:
+          type: string
+  responses:
+    InvalidJson:
+      description: The signed body is not valid JSON, including invalid UTF-8 or excessive nesting.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Error'
+              - properties:
+                  error:
+                    const: invalid_json
+          example: {error: invalid_json}
+    InvalidSignature:
+      description: A security header is missing or invalid, the timestamp is outside the window, or the HMAC does not match.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Error'
+              - properties:
+                  error:
+                    const: invalid_signature
+          example: {error: invalid_signature}
+    MethodNotAllowed:
+      description: This path accepts POST only. Authentication is not checked for GET or PUT.
+      headers:
+        Allow:
+          required: true
+          schema:
+            type: string
+            const: POST
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Error'
+              - properties:
+                  error:
+                    const: method_not_allowed
+          example: {error: method_not_allowed}
+    PayloadTooLarge:
+      description: The raw body is larger than 65,536 bytes.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Error'
+              - properties:
+                  error:
+                    const: payload_too_large
+          example: {error: payload_too_large}
+    UnsupportedMediaType:
+      description: Content-Type is missing or its media type is not application/json.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Error'
+              - properties:
+                  error:
+                    const: unsupported_media_type
+          example: {error: unsupported_media_type}
+    ValidationFailed:
+      description: JSON is valid but the envelope or payment fields do not match the schema.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Error'
+              - properties:
+                  error:
+                    const: validation_failed
+          example: {error: validation_failed}
+    InternalError:
+      description: An unexpected error occurred. No exception details are returned.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Error'
+              - properties:
+                  error:
+                    const: internal_error
+          example: {error: internal_error}
+    TemporarilyUnavailable:
+      description: The service is temporarily unavailable, including when the webhook secret is empty.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Error'
+              - properties:
+                  error:
+                    const: temporarily_unavailable
+          example: {error: temporarily_unavailable}
