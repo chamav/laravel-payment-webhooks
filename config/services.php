@@ -2,6 +2,10 @@
 
 return [
 
+    'demo_pay' => [
+        'webhook_secret' => env('WEBHOOK_SECRET', ''),
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | Third Party Services
