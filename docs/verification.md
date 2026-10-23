@@ -2,8 +2,8 @@
 
 # Verification record
 
-This record verifies a committed checkout. GitHub CI and the owner's spoken
-demonstration remain pending.
+This record verifies a committed checkout and the first GitHub CI run. The
+owner's spoken demonstration remains pending.
 
 ## Source provenance
 
@@ -183,6 +183,25 @@ The owner's three containers kept their IDs, start times, health and mounts;
 the app image ID, demo-volume metadata, `.env` bytes and demo rows also matched.
 The existing owner stack remains healthy with its original data.
 
+## GitHub CI
+
+GitHub Actions run `39989655494` checked commit
+`16613f4745f96271e12028382fc2f20ff4a8937d` on 2026-10-23, from 16:47:10 to
+16:48:33 UTC. That commit differs from the verified commit above only in this
+record. The runner was `ubuntu-24.04` (linux/amd64). The workflow in
+`.github/workflows/ci.yml` runs `make setup`, `make migrate-test` and
+`make verify` with the same Compose file and pinned images as the local checks.
+
+| Check | Actual result |
+| --- | --- |
+| Composer validation | Passed with `--strict` |
+| Pint | Passed, 84 files |
+| PHPStan | Passed, level 8, no errors |
+| PHPUnit (JUnit artifact `phpunit-junit`) | 542 tests, 6257 assertions, 0 errors, 0 failures, **0 skipped** |
+| C01-C05 | All 5 tests passed |
+
+This run is the first execution of the suite on linux/amd64.
+
 ## Acceptance coverage
 
 Every automated check below ran in the full PHPUnit suite. Method names identify
@@ -231,7 +250,7 @@ the exact check; parameterized methods include all their data-provider cases.
 | P02 | Repeated setup, `.env` and demo-row comparison above | Passed |
 | P03 | [Database guard](../tests/Feature/Support/TestDatabaseConnectionTest.php): `test_p03_uses_real_webhooks_test_database`; [reset guard](../tests/Feature/Console/ResetDemoCommandTest.php): both `test_p03_*` methods; manual demo-row comparison | Passed |
 | P04 | [Demo runner](../tests/Feature/Console/RunDemoCommandTest.php): all `test_p04_*` methods; `P04_demo_repeat_and_failed_expectation` | Passed |
-| P05 | GitHub CI on the final published code commit | Pending; no remote run claimed |
+| P05 | GitHub Actions run `39989655494` on `16613f4745f96271e12028382fc2f20ff4a8937d` | Passed |
 | P06 | `P06_openapi_http_contract_review` and H/D/R HTTP tests | Passed |
 | P07 | [Logging](../tests/Feature/Webhooks/DemoPayLoggingTest.php): all methods; [sender summary](../tests/Feature/Console/SendDemoWebhookCommandTest.php): all `test_p07_*` methods | Passed |
 | P08 | `P08_source_archive_hygiene` | Passed on `4934ea26df4d429cc2a046fb47c62e883d1c4fe5` |

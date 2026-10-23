@@ -1,5 +1,7 @@
 # Laravel Payment Webhooks
 
+[![CI](https://github.com/chamav/laravel-payment-webhooks/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/chamav/laravel-payment-webhooks/actions/workflows/ci.yml)
+
 A Laravel demo that accepts signed payment events and keeps one payment per order, even on repeated or concurrent delivery.
 
 The provider, `demo-pay`, is fictional. Amounts are integer minor units in EUR or USD.
