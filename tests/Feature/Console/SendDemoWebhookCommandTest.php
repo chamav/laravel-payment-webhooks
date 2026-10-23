@@ -4,8 +4,13 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Console;
 
+use App\Services\SendDemoWebhook;
 use Carbon\CarbonImmutable;
+use GuzzleHttp\Promise\FulfilledPromise;
+use GuzzleHttp\Psr7\FnStream;
+use GuzzleHttp\Psr7\PumpStream;
 use GuzzleHttp\Psr7\Response as Psr7Response;
+use GuzzleHttp\Psr7\Utils;
 use Illuminate\Http\Client\Request;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response;
@@ -310,6 +315,159 @@ class SendDemoWebhookCommandTest extends TestCase
         $this->assertSame(1, $this->runSender());
         Http::assertSentCount(1);
         Sleep::assertNeverSlept();
+    }
+
+    #[DataProvider('safeSummaries')]
+    public function test_p07_summary_contains_only_validated_response_fields(array $body, int $status): void
+    {
+        $expected = $body;
+        $body['signature'] = 'LEAK_MARKER';
+        $body['payload'] = self::BODY;
+        Http::fake(['*' => Http::response($body, $status)]);
+        $result = app(SendDemoWebhook::class)->send(self::BODY);
+        $this->assertSame($expected, $result->responseSummary);
+        $this->assertSame($status, $result->httpStatus);
+        $this->assertSame(1, $result->attempts);
+        $this->assertSame($status === 200, $result->successful());
+        $this->assertSame($status === 200 ? 0 : 1, $this->runSender());
+        $this->assertSafeOutput();
+    }
+
+    public static function safeSummaries(): array
+    {
+        return [
+            'processed' => [['event_id' => 'evt_safe', 'outcome' => 'processed', 'duplicate' => false], 200],
+            'replay' => [['event_id' => 'evt_safe', 'outcome' => 'processed', 'duplicate' => true], 200],
+            'rejected' => [['event_id' => 'evt_safe', 'outcome' => 'rejected', 'duplicate' => true, 'reason' => 'order_not_found'], 409],
+            'event_conflict' => [['error' => 'event_conflict'], 409],
+            'signature' => [['error' => 'invalid_signature'], 401],
+        ];
+    }
+
+    #[DataProvider('largeResponses')]
+    public function test_p07_bounds_stream_reads_without_changing_retries_or_command_exit(int $size, int $status, bool $exception, int $exit, int $attempts): void
+    {
+        $streams = [];
+        Http::fake(function () use (&$streams, $size, $status, $exception) {
+            $generated = 0;
+            $source = new PumpStream(function (int $length) use (&$generated, $size) {
+                if ($generated === $size) {
+                    return false;
+                }
+                $length = min($length, $size - $generated);
+                $chunk = str_pad(substr('{"error":"internal_error"}', $generated, $length), $length, ' ');
+                $generated += $length;
+
+                return $chunk;
+            });
+            // Short, nonseekable reads must still enforce the total limit with no size metadata.
+            $stream = FnStream::decorate($source, ['read' => fn (int $length) => $source->read(min($length, 127))]);
+            $streams[] = $stream;
+            $response = new Psr7Response($status, [], $stream);
+            if ($exception) {
+                throw new RequestException(new Response($response));
+            }
+
+            return new FulfilledPromise($response);
+        });
+
+        $result = app(SendDemoWebhook::class)->send(self::BODY);
+        $this->assertNull($result->responseSummary);
+        $this->assertSame($status, $result->httpStatus);
+        $this->assertSame($attempts, $result->attempts);
+        $this->assertSame($exit === 0, $result->successful());
+        $this->assertSame($exit, $this->runSender());
+        $this->assertStringContainsString('http_status='.$status.'; attempts='.$attempts.'.', Artisan::output());
+        $this->assertCount($attempts * 2, $streams);
+        foreach ($streams as $stream) {
+            $this->assertSame(4097, $stream->tell());
+            $this->assertFalse($stream->eof());
+        }
+        $sleeps = $attempts === 3 ? [250, 500, 250, 500] : [];
+        Sleep::assertSequence(array_map(fn ($ms) => Sleep::for($ms)->milliseconds(), $sleeps));
+        $records = $this->logs->getRecords();
+        $this->assertCount($attempts * 2, $records);
+        foreach ($records as $index => $record) {
+            $attempt = ($index % $attempts) + 1;
+            $this->assertSame([
+                'attempt' => $attempt, 'http_status' => $status,
+                'error_code' => $exception ? 'transport_error' : ($exit === 0 ? null : 'http_error'),
+                'retry' => $attempt < $attempts,
+            ], $record->context);
+        }
+        $this->assertSafeOutput();
+        $this->assertDomainEmpty();
+    }
+
+    public static function largeResponses(): iterable
+    {
+        foreach ([1048576, 33554432] as $size) {
+            yield $size.'_success' => [$size, 200, false, 0, 1];
+            yield $size.'_terminal' => [$size, 409, false, 1, 1];
+            yield $size.'_retry_exhausted' => [$size, 503, false, 1, 3];
+            yield $size.'_exception_terminal' => [$size, 409, true, 1, 1];
+            yield $size.'_exception_retry_exhausted' => [$size, 503, true, 1, 3];
+        }
+    }
+
+    #[DataProvider('summarySizeBoundaries')]
+    public function test_p07_summary_size_boundary_with_short_reads(int $size, bool $accepted): void
+    {
+        $source = Utils::streamFor(str_pad('{"error":"invalid_signature"}', $size, ' '));
+        $stream = FnStream::decorate($source, ['read' => fn (int $length) => $source->read(min($length, 127))]);
+        Http::fake(fn () => new FulfilledPromise(new Psr7Response(401, [], $stream)));
+
+        $result = app(SendDemoWebhook::class)->send(self::BODY);
+
+        $this->assertSame($accepted ? ['error' => 'invalid_signature'] : null, $result->responseSummary);
+        $this->assertSame($size, $source->tell());
+        $this->assertSame(401, $result->httpStatus);
+        $this->assertSame(1, $result->attempts);
+        $this->assertFalse($result->successful());
+        Sleep::assertNeverSlept();
+    }
+
+    public static function summarySizeBoundaries(): array
+    {
+        return ['at_limit' => [4096, true], 'over_limit' => [4097, false]];
+    }
+
+    #[DataProvider('unsafeSummaries')]
+    public function test_p07_summary_discards_untrusted_or_malformed_response_data(string $body): void
+    {
+        Http::fake(['*' => Http::response($body, 200)]);
+        $result = app(SendDemoWebhook::class)->send(self::BODY);
+        $this->assertNull($result->responseSummary);
+        $this->assertTrue($result->successful());
+        $this->assertSame(0, $this->runSender());
+        $this->assertSafeOutput();
+    }
+
+    public static function unsafeSummaries(): iterable
+    {
+        foreach (['event_id' => ['bad id', '', str_repeat('a', 101), 123, null],
+            'outcome' => ['LEAK_MARKER', [], null], 'duplicate' => ['true', 1, null],
+            'reason' => ['LEAK_MARKER', false, null], 'error' => ['LEAK_MARKER', [], null]] as $key => $values) {
+            foreach ($values as $index => $value) {
+                yield $key.'_'.$index => [json_encode([$key => $value], JSON_THROW_ON_ERROR)];
+            }
+        }
+        foreach (['<html>LEAK_MARKER</html>', '{}', '[]', 'null', '{',
+            json_encode(['error' => 'invalid_signature', 'extra' => str_repeat('x', 4097)], JSON_THROW_ON_ERROR),
+            '{"error":"invalid_signature","extra":'.str_repeat('[', 10).'0'.str_repeat(']', 10).'}'] as $index => $raw) {
+            yield 'raw_'.$index => [$raw];
+        }
+    }
+
+    public function test_p07_network_error_has_no_response_summary(): void
+    {
+        config(['services.demo_pay.sender_attempts' => 1]);
+        Http::fake(['*' => Http::failedConnection('LEAK_MARKER')]);
+        $result = app(SendDemoWebhook::class)->send(self::BODY);
+        $this->assertNull($result->responseSummary);
+        $this->assertNull($result->httpStatus);
+        $this->assertFalse($result->successful());
+        $this->assertSafeOutput();
     }
 
     private function runSender(): int

@@ -6,10 +6,12 @@ namespace App\Data;
 
 final readonly class WebhookDeliveryResult
 {
+    /** @param array<string, bool|string>|null $responseSummary */
     public function __construct(
         public int $attempts,
         public ?int $httpStatus,
         public ?string $errorCode,
+        public ?array $responseSummary = null,
     ) {}
 
     public function successful(): bool

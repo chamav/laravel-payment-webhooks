@@ -8,7 +8,7 @@ export HOST_GID := $(shell id -g)
 RUN := $(COMPOSE) run --rm --no-deps -T app
 
 .DEFAULT_GOAL := help
-.PHONY: help setup secrets up down logs shell psql test verify reset-demo migrate-test
+.PHONY: help setup secrets up down logs shell psql test verify reset-demo migrate-test demo
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-10s %s\n", $$1, $$2}'
@@ -22,7 +22,7 @@ setup: ## Create .env and secrets, build, install dependencies, migrate and star
 	$(COMPOSE) up -d --wait db
 	$(RUN) php artisan migrate --force --no-interaction
 	$(COMPOSE) up -d --wait app
-	@echo "Service: http://127.0.0.1:$$(grep -E '^APP_PORT=' .env | cut -d= -f2)/up"
+	@echo "Service: http://127.0.0.1:$${APP_PORT:-$$(grep -E '^APP_PORT=' .env | cut -d= -f2)}/up"
 
 # Fills empty secrets in .env with 32 random bytes (64 hex chars); existing values are kept.
 secrets:
@@ -34,6 +34,10 @@ secrets:
 			echo "Generated $$var in .env"; \
 		fi; \
 	done
+
+demo: ## Send signed HTTP requests and check fresh demo orders
+	$(COMPOSE) up -d --wait app
+	$(RUN) php artisan demo:run
 
 up: ## Start the service
 	$(COMPOSE) up -d --wait app
@@ -64,5 +68,5 @@ test: ## Run the test suite on the separate test database (ARGS="--filter Name")
 verify: ## Validate Composer, run Pint, PHPStan level 8 and the test suite
 	$(RUN) composer validate --strict
 	$(RUN) vendor/bin/pint --test
-	$(RUN) vendor/bin/phpstan analyse --no-progress
+	$(RUN) vendor/bin/phpstan analyse --no-progress --memory-limit=512M
 	@$(MAKE) --no-print-directory test
