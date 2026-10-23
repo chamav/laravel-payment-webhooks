@@ -8,7 +8,7 @@ export HOST_GID := $(shell id -g)
 RUN := $(COMPOSE) run --rm --no-deps -T app
 
 .DEFAULT_GOAL := help
-.PHONY: help setup secrets up down logs shell psql test verify
+.PHONY: help setup secrets up down logs shell psql test verify reset-demo migrate-test
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-10s %s\n", $$1, $$2}'
@@ -50,11 +50,19 @@ shell: ## Open a shell in the application container
 psql: ## Open psql on the demo database
 	$(COMPOSE) exec db sh -c 'psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"'
 
+reset-demo: ## Delete only orders, payments and receipts from the local demo database
+	$(RUN) php artisan demo:reset --no-interaction
+
+migrate-test: ## Migrate only the separate test database
+	$(COMPOSE) up -d --wait db-test
+	$(COMPOSE) run --rm --no-deps -T -e APP_ENV=testing -e DB_CONNECTION=pgsql -e DB_URL= -e DB_HOST=db-test -e DB_DATABASE=webhooks_test -e DB_USERNAME=webhooks_test -e DB_PASSWORD=webhooks_test app sh -c 'php artisan config:clear --no-interaction >/dev/null && php artisan migrate --force --no-interaction'
+
 test: ## Run the test suite on the separate test database (ARGS="--filter Name")
 	$(COMPOSE) up -d --wait db-test
 	$(RUN) sh -c 'php artisan config:clear --no-interaction >/dev/null && php artisan test $(ARGS)'
 
-verify: ## Validate composer files, check code style and run the test suite
+verify: ## Validate Composer, run Pint, PHPStan level 8 and the test suite
 	$(RUN) composer validate --strict
 	$(RUN) vendor/bin/pint --test
+	$(RUN) vendor/bin/phpstan analyse --no-progress
 	@$(MAKE) --no-print-directory test
