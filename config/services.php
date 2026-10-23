@@ -4,6 +4,12 @@ return [
 
     'demo_pay' => [
         'webhook_secret' => env('WEBHOOK_SECRET', ''),
+        'webhook_url' => env('DEMO_PAY_WEBHOOK_URL', 'http://app:8080/api/webhooks/demo-pay'),
+        'sender_attempts' => env('DEMO_PAY_SENDER_ATTEMPTS', 3),
+        // Capped exponential backoff: 1..2000 ms initially, capped at 2000 ms between attempts.
+        'sender_backoff_ms' => env('DEMO_PAY_SENDER_BACKOFF_MS', 250),
+        // 1..60 seconds per attempt; connect timeout is min(2, timeout).
+        'sender_timeout_seconds' => env('DEMO_PAY_SENDER_TIMEOUT_SECONDS', 15),
     ],
 
     /*
