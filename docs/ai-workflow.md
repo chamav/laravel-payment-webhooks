@@ -2,9 +2,9 @@
 
 [README](../README.md) | [Verification](verification.md)
 
-AI agents wrote most of the code, tests and docs here. I wrote the spec and the
-acceptance matrix (48 checks with IDs like H03, D05 and C04), set the rules and
-decided what to ship.
+AI agents wrote most of the code, tests and docs here. I prepared the spec and
+acceptance matrix with AI. I set the rules and decided what to ship. The matrix
+has 48 checks with IDs like H03, D05 and C04.
 
 The agents worked in two roles. Implementer agents planned and built one stage
 at a time. A coordinating agent reviewed each plan before any code, ran the
